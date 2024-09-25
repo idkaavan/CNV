@@ -1,3 +1,4 @@
+# R package, inferring CNV using a segmentation method on scRNA data
 # R 4.4.0
 library(SCEVAN)
 library(Seurat)
