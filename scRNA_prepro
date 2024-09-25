@@ -2,12 +2,6 @@ Clear env
 rm(list = ls(all.names = TRUE)
 gc() #free up memory and report usage
 
-## From .fastq to .bam
-## https://biocellgen-public.svi.edu.au/mig_2019_scrnaseq-workshop/processing-raw-scrna-seq-data.html
-
-## How to analyze 10X Single Cell RNA-seq data with R| Seurat Package Tutorial
-
-setwd("")
 library(Seurat)
 library(dplyr)
 library(Matrix) #reading mtx file
@@ -17,92 +11,169 @@ library(tidyverse) #data manipulation
 library(AnnotationDbi) #convert ensembl to symbol
 library(viridis) #better heatmap color schemes
 
-set.seed(42) #same result for randomization steps
+set.seed(1234) #same result for randomization steps
 
-data <- Read10X_h5(filename = ".h")
-#or
-data <- Read10X(data.dir = "RAW files") #Raw files is a folder containing barcodes, features and matrix .gz)
-str(data) #check modalities (list of matrices)
-cts <- data@assays$RNA@layers$counts #or wherever the gene expression matrix is stored
-sobj <- CreateSeuratObject(counts = cts, min.cells = 3, min.features = 200, project = "leukemia")
-DefaultAssay(sobj) <- "RNA"
+readRaw=function(inputDir){
+      
+      matrix_dir = inputDir
+      barcode.path <- paste0(matrix_dir, "barcodes.tsv.gz")
+      features.path <- paste0(matrix_dir, "features.tsv.gz")
+      matrix.path <- paste0(matrix_dir, "matrix.mtx.gz")
+      mat <- readMM(file = matrix.path)
+      feature.names = read.delim(features.path,
+      header = FALSE,
+      stringsAsFactors = FALSE)
+      barcode.names = read.delim(barcode.path,
+      header = FALSE,
+      stringsAsFactors = FALSE)
+      colnames(mat) = barcode.names$V1
+      ## matching to symbols not unique, fix here
+      feature.names[duplicated(feature.names[,2]),2]=paste(feature.names[duplicated(feature.names[,2]),2],feature.names[duplicated(feature.names[,2]),1], sep=":")
+      
+      #rownames(mat) = feature.names$V1
+      rownames(mat) = feature.names$V2
+      
+      dat.r=mat[feature.names[,3]=="Gene Expression",]
+      s <- CreateSeuratObject(dat.r)
+  
+      ## raw counts for protein
+      if(nrow(dat.r)<length(feature.names[,3])){
+          isHashAb=1:nrow(mat)%in%grep("Hash",rownames(mat))
+          dat.p=mat[!isHashAb&feature.names[,3]=="Antibody Capture",]
+          s[["ADTraw"]] <- CreateAssayObject(counts = as.matrix(dat.p))
+  
+          if(any(isHashAb)){
+              dat.h=mat[isHashAb,]
+              s[["HTOraw"]] <- CreateAssayObject(counts = as.matrix(dat.h))
+          }
+     }
+      return(s)
+      
+ }
 
-#QC; low counts, high counts(doublet), percentage of mitochondrial gene(if high mt genes are leaking from the mt, so mayble dying cells)
-sobj[['percent_mt']] <- PercentageFeatureSet(sobj, pattern = "^MT-") #stored in metadata of the seurat object
-sobj[["percent_ribo"]] <- PercentageFeatureSet(sobj, pattern = "^RPL|^RPS")
-view(sobj@meta.data) #low nFeatures indicate dying or empty droplet, high indicate multiplet
 
-VlnPlot(sobj, features =c("nFeature_RNA", "nCount_RNA", "percent_mt"), ncol = 3)
-#plot number of genes against the molecules to decide a threshold for removing low quality cells: low right and top left corners of the plot are to be removed
-FeatureScatter(sobj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") +
-  geom_smooth(method = 'lm')
-sobj_filtered <- subset(sobj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent_mt < 5)
+doDRclu=function(x,resol){
+     #if(!isSCT) x <- ScaleData(x)
+     #x <-RunPCA(x, ndims.print=1, nfeatures.print=1)
+     ## k neighbors is here 20, UMAP done with k 15 and k 30
+     x <- FindNeighbors(x, reduction = "pca", dims = 1:50,annoy.metric="cosine")
+     x <- FindClusters(x, resolution = resol)
+     ## version with preference to local structure preserving embedding
+     x <- RunUMAP(x, reduction = "pca", dims = 1:50,n.neighbors=15, min.dist=0.3)
+     x <- RunUMAP(x, reduction = "pca", dims = 1:50,n.neighbors=30, min.dist=0.5, reduction.name="uglobal")
+     return(x)
+ }
+ 
+ 
+ ## customised for detecting rare leukemic cells in post-trt samples
+ ## decrease k.param if small (but clearly separate) clusters still are assigned to same cluster
+ doDRclu_highres=function(x,resol){
+     
+     x <- FindNeighbors(x, reduction = "pca", dims = 1:50,annoy.metric="cosine", ntrees=100, k.param=10)
+     x <- FindClusters(x, resolution = resol, algorithm=1)
+     ## version with preference to local structure preserving embedding
+     x <- RunUMAP(x, reduction = "pca", dims = 1:50,n.neighbors=15, min.dist=0.3)
+     ## "regular" UMAP
+     x <- RunUMAP(x, reduction = "pca", dims = 1:50,n.neighbors=30, min.dist=0.5, reduction.name="uglobal")
+     return(x)
+ }
+ 
+ for(i in 1:length(rawdata_paths)){
+    ## --- READ data
+     
+     s=readRaw(rawdata_paths[i])
+    
+    print(summary(s$nCount_RNA))
+    
+        
+   # as recommended by tool
+   s=s[,s$nCount_RNA>500]
+   # normalize
+   s=NormalizeData(s)
+   s=FindVariableFeatures(s, selection.method = "vst", nfeatures = 3000)
+   s=ScaleData(s)
+   s=RunPCA(s, ndims.print=1, nfeatures.print=1)
+   
+   ## the resolution here may need adjusting ; lower value for res results in less clusters
+  s=doDRclu(s,res=1)
+   
+   print("performing doublet detection for object with dims:")
+   print(dim(s))
+  
+  ## default run; no info passed about doublets, no user-specified cluster info
+  sce_simple <- scDblFinder(GetAssayData(s, slot="counts"))
+  
+  ## add the resulting score and classification to object metadata
+  s$scDblFinder.score <- sce_simple$scDblFinder.score
+  s$scDblFinder.class <-sce_simple$scDblFinder.class
+ 
+  ## Also the [[ operator can add columns to object metadata. Add mitochondrial gene percentage as additional QC stats
+  s[["percent.mt"]] <- PercentageFeatureSet(s, pattern = "^MT-")
+ 
+  print(summary(s$percent.mt))
+  
+  ## check that metadata now includes the results
+  print(colnames(s[[]]))
 
-#or based on Dufva et al. filtering criteria
-sobj_filtered <- subset(sobj, subset = percent_mt < 15 & percent_ribo > 5 & percent_ribo < 50 & 
-                               nCount_RNA > 700 & nFeature_RNA > 300 & nFeature_RNA < 10000)
+  saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj1.rds"))
+  
+  ## plot result, dimplot colors by group on UMAP, featureplot colors by score on UMAP and violin plot
+ 
+ ## remove detected doublets
+ s=s[,s$scDblFinder.class!="doublet"]
+ print(dim(s))
+ 
+ 
+ qc_fail=rep(F, ncol(s))
+  ## adjust as seems best fitting to the data basic initial filtering to remove most likely poor quality cell data
 
-sobj <- NormalizeData(sobj_filtered, normalization.method = 'LogNormalize', scale.factor = 10000) #default settings
-sobj <- FindVariableFeatures(sobj, selection.method = 'vst', nFeatures = 2000)
-
-#find top 10 variables
-top10 <- head(VariableFeatures(sobj), 10)
-top10_plot <- VariableFeaturePlot(sobj)
-LabelPoints(plot = top10_plot, points = top10, rep1 = TRUE)
-
-#scaling, correct for batch effects or cell cycle variations
-all_genes <- rownames(sobj)
-sobj <- ScaleData(sobj, features = all_genes) #can use new normalization workflow SCTransform; replaces NormalizeData(), ScaleData(), and FindVariableFeatures()
-## store mitochondrial and ribosomal percentage in object meta data
-sobj <- PercentageFeatureSet(sobj, pattern = "^MT-", col.name = "percent_mt")
-sobj <- PercentageFeatureSet(sobj, pattern = "^RPS|^RPL", col.name = "percent_ribo")
-## run sctransform
-sobj <- SCTransform(sobj, vars.to.regress = c("percent_mt", "percent_ribo"), verbose = FALSE)
-#or only mt
-sobj <- SCTransform(sobj, vars.to.regress = "percent_mt", verbose = FALSE) #BiocManager::install('glmGamPoi') for faster estimation
-
-view(sobj@assays$RNA)
-
-#dimentionality reduction
-sobj <- RunPCA(sobj, features = VariableFeatures(sobj))
-print(sobj[['pca']], dims = 1:5, nfeatures = 5) #top 5 contributing genes to each PC
-DimHeatmap(sobj, dims = 1, cells = 500, balanced = TRUE)
-DimPlot(sobj, reduction = "pca") = NoLegend()
-
-ElbowPlot(sobj) #how many PCs are enough for analysis
-
-#Clustering
-sobj <- FindNeighbors(sobj, dims = 1:15) #select the top 15 PCs
-sobj <- FindClusters(sobj, resolution = c(0.1, 0.3, 0.5, 0.7, 1)) #the lower resolution the less clusters
-view(sobj@meta.data)
-DimPlot(sobj, group.by = 'RNA_ssn_res.1', label = TRUE)
-Idents(sobj) <- 'RNA_ssn_res.0.1'
-
-#identify markers of each cluster: https://satijalab.org/seurat/articles/pbmc3k_tutorial.html#finding-differentially-expressed-features-cluster-biomarkers
-# find markers for every cluster compared to all remaining cells, report only the positive ones
-sobj.markers <- FindAllMarkers(sobj, only.pos = TRUE)
-sobj.markers %>%
-    group_by(cluster) %>%
-    dplyr::filter(avg_log2FC > 1)
-#for one cluster
-#find all markers distinguishing cluster 5 from clusters 0 and 3
-cluster5.markers <- FindMarkers(pbmc, ident.1 = 5, ident.2 = c(0, 3))
-head(cluster5.markers, n = 5)
-
-sobj <- RunUMAP(sobj, dims = 1:15)
-DimPlot(sobj, reduction = 'umap')
-
-#Assigning cell type identity to clusters
-new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono",
-    "NK", "DC", "Platelet")
-names(new.cluster.ids) <- levels(sobj)
-pbmc <- RenameIdents(pbmc, new.cluster.ids)
-DimPlot(sobj, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
-
-saveRDS(sobj, file = 'leukemia.RDS')
-
-save(sobj,
-     file = "D40.RData")
+ ## drop lowest 5% by number of genes detected (nFeature_RNA)
+ ## drop highest 95% by mitochondrial gene proportion
+ qc_fail=qc_fail|s$nFeature_RNA<quantile(s$nFeature_RNA,.05)|s$percent.mt>quantile(s$percent.mt,.95)
+ 
+ ## filter more stringent if both qc metrics indicate poor quality
+ ## lowest 10% by number of genes detected AND lowest 10% by nCounts AND highest 10% by mitochondrial proportion
+ qc_fail=qc_fail|(s$nFeature_RNA<quantile(s$nFeature_RNA,.10)  & s$nCount_RNA<quantile(s$nCount_RNA,.10)&s$percent.mt>quantile(s$percent.mt,.10))
+ 
+ s=s[,!qc_fail]
+ print("object size after initial QC filtering :")
+ print(dim(s))
+ 
+ ## typically the data shows different QC distributions by cluster, this step performs QC filtering by cluster (N.B. using existing clusters)
+ ## outliers (smallest/largest) are flagged based on 2*median absolute deviation+ 
+ sclu=as.vector(unique(s$seurat_clusters))
+ for (j in 1:length(sclu)){
+     ##define clu qc metric ranges to exclude outliers by median absolute deviance; shorter way to write this symmetric outlier filter by mad would be which((abs(x - median(x)) / mad(x)) > 2) if using 2*mad and assuming distribution is approx normal the filter will remove 5% of outliers
+     feat_size_min = median(s$nFeature_RNA[s$seurat_clusters==sclu[j]]) - (2*mad(s$nFeature_RNA[s$seurat_clusters==sclu[j]]))
+     feat_size_max = median(s$nFeature_RNA[s$seurat_clusters==sclu[j]]) + (2*mad(s$nFeature_RNA[s$seurat_clusters==sclu[j]]))
+     
+     rna_size_min = median(s$nCount_RNA[s$seurat_clusters==sclu[j]]) - (2*mad(s$nCount_RNA[s$seurat_clusters==sclu[j]]))
+     rna_size_max = median(s$nCount_RNA[s$seurat_clusters==sclu[j]]) + (2*mad(s$nCount_RNA[s$seurat_clusters==sclu[j]]))
+     
+     qc_fail=qc_fail|(s$seurat_clusters==sclu[j]&(s$nFeature_RNA<feat_size_min|s$nFeature_RNA>feat_size_max|s$nCount_RNA<rna_size_min|s$nCount_RNA>rna_size_max))
+ } 
+ ## add this info to first plot and then remove
+ s=AddMetaData(s, qc_fail, col.name="qc_flag_final")
+ 
+ saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj2.rds"))
+ s=s[,!s$qc_flag_final]
+ 
+ ## --- NORMALIZE, scale, calculate dimensionality reductions on rna data
+ s=NormalizeData(s)
+ s=FindVariableFeatures(s, selection.method = "vst", nfeatures = 3000)
+ s=ScaleData(s)
+ s=RunPCA(s, ndims.print=1, nfeatures.print=1)
+ s=doDRclu(s,res=1)
+ s=doDRclu_highres(s,res=2)
+ 
+ colnames(s[[]])
+ 
+ 
+ 
+ saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj3.rds"))
+  
+  
+ }
 
 #save as h5ad
 library(SeuratDisk)
