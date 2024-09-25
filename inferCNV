@@ -1,0 +1,50 @@
+# R package for infering CNV based on mean expression from scRNA 
+# use singularity version
+conda create --name jags_infercnv
+conda activate jags_infercnv
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+conda install jags -y
+conda install -c conda-forge r-biocmanager -y
+# retrieve the singularity file
+wget https://data.broadinstitute.org/Trinity/CTAT_SINGULARITY/InferCNV/infercnv-1.20.0.simg
+
+# cd 'directory where simg is saved in'
+singularity shell --writable-tmpfs -e -B '/research/groups/bioinformaticians/internship/aalizade/infercnv/' infercnv-1.20.0.simg
+# Apptainer> 
+# type R and load libraries
+
+# create infercnv object from seurat object (gene x cell count matrix), cell annotation as tab-delimited txt file, gene coordinates (chr, start, end)
+data <- readRDS("file.rds")
+# seurat v5, if v4 use CreateSeuratObject
+sobj <- UpdateSeuratObject(object = data)
+cell_annotation <- file.path("", "cellannotation.txt")
+gene_ordering_file <- file.path("", "gene_order.txt")
+infercnv_obj = CreateInfercnvObject(raw_counts_matrix=LayerData(sobj, assay = "RNA", layer = "data"),
+                                    annotations_file=cell_annotation,
+                                    delim="\t",
+                                    gene_order_file=gene_ordering_file,
+                                    ref_group_names="healthy" #if not add NULL
+)
+# defaul parameter
+infercnv_obj = infercnv::run(infercnv_obj,
+                             cutoff=0.1,  # use 1 for smart-seq, 0.1 for 10x-genomics
+                             out_dir="output_dir",  # dir is auto-created for storing outputs
+                             cluster_by_groups=T,   # cluster
+                             denoise=T,
+                             HMM=T
+                             )
+# parameters used on EG samples that generated most common signals with WGS
+infercnv_obj = infercnv::run(infercnv_obj,
+                             cutoff=0.1, 
+                             out_dir="output_dir", 
+                             cluster_by_groups=T,   
+                             denoise=T,
+                             HMM=T,
+                             HMM_type = 'i6',
+                             sd_amplifier = 1.5,
+                             noise_filter = 0.1,
+                             window_depth = 251,
+                             leiden_resolution = 0.01
+                             )
+
