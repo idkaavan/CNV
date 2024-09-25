@@ -1,0 +1,24 @@
+# R 4.4.0
+library(SCEVAN)
+library(Seurat)
+
+data <- readRDS("file.rds")
+sobj <- UpdateSeuratObject(object = data)
+count_mtx <- as.matrix(sobj@assays$RNA@data)
+
+# default run
+results <- pipelineCNA(count_mtx) 
+
+# adjusted parameters
+results <- pipelineCNA(
+    count_mtx = counts_matrix,      # Raw count matrix
+    norm_cell = norm_cells,         # Indices of normal cells
+    SUBCLONES = TRUE,               # Analyze subclones (optional)
+    beta_vega = 0.5,                # Beta parameter (optional)
+    ClonalCN = TRUE,                # Get clonal CN profile (optional)
+    plotTree = FALSE,               # Plot phylogenetic tree (optional)
+    organism = "human"              # Specify organism (optional)
+)
+
+# in-house version
+SCEVAN::pipelineCNA_Partial(count_mtx, sample="EXAMPLE", steps_to_run = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), saveInputValues = TRUE)
