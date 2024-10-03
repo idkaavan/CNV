@@ -68,7 +68,7 @@ setwd(wrkDir)
 resDir="/path/"
 dir.create(resDir)
 rawdata_paths <- c(
-  '/path/
+  '/path/'
 )
 samples <- sub("/path/", "", rawdata_paths)
 samples <- sub("\\/", "", samples)
