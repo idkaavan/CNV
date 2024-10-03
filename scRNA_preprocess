@@ -179,3 +179,7 @@ doDRclu=function(x,resol){
 library(SeuratDisk)
 SaveH5Seurat(sobj, filename = "D40.h5Seurat")
 Convert("D40.h5Seurat", dest = "h5ad")
+
+## gene annotation
+https://medium.com/intothegenomics/annotate-genes-and-genomic-coordinates-using-python-9259efa6ffc2
+
