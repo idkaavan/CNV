@@ -13,8 +13,7 @@ library(viridis) #better heatmap color schemes
 
 set.seed(1234) #same result for randomization steps
 
-readRaw=function(inputDir){
-      
+readRaw=function(inputDir){      
       matrix_dir = inputDir
       barcode.path <- paste0(matrix_dir, "barcodes.tsv.gz")
       features.path <- paste0(matrix_dir, "features.tsv.gz")
@@ -28,14 +27,11 @@ readRaw=function(inputDir){
       stringsAsFactors = FALSE)
       colnames(mat) = barcode.names$V1
       ## matching to symbols not unique, fix here
-      feature.names[duplicated(feature.names[,2]),2]=paste(feature.names[duplicated(feature.names[,2]),2],feature.names[duplicated(feature.names[,2]),1], sep=":")
-      
+      feature.names[duplicated(feature.names[,2]),2]=paste(feature.names[duplicated(feature.names[,2]),2],feature.names[duplicated(feature.names[,2]),1], sep=":")      
       #rownames(mat) = feature.names$V1
-      rownames(mat) = feature.names$V2
-      
+      rownames(mat) = feature.names$V2      
       dat.r=mat[feature.names[,3]=="Gene Expression",]
-      s <- CreateSeuratObject(dat.r)
-  
+      s <- CreateSeuratObject(dat.r)  
       ## raw counts for protein
       if(nrow(dat.r)<length(feature.names[,3])){
           isHashAb=1:nrow(mat)%in%grep("Hash",rownames(mat))
@@ -47,11 +43,8 @@ readRaw=function(inputDir){
               s[["HTOraw"]] <- CreateAssayObject(counts = as.matrix(dat.h))
           }
      }
-      return(s)
-      
+      return(s)     
  }
-
-
 doDRclu=function(x,resol){
      #if(!isSCT) x <- ScaleData(x)
      #x <-RunPCA(x, ndims.print=1, nfeatures.print=1)
@@ -63,12 +56,9 @@ doDRclu=function(x,resol){
      x <- RunUMAP(x, reduction = "pca", dims = 1:50,n.neighbors=30, min.dist=0.5, reduction.name="uglobal")
      return(x)
  }
- 
- 
  ## customised for detecting rare leukemic cells in post-trt samples
  ## decrease k.param if small (but clearly separate) clusters still are assigned to same cluster
- doDRclu_highres=function(x,resol){
-     
+ doDRclu_highres=function(x,resol){     
      x <- FindNeighbors(x, reduction = "pca", dims = 1:50,annoy.metric="cosine", ntrees=100, k.param=10)
      x <- FindClusters(x, resolution = resol, algorithm=1)
      ## version with preference to local structure preserving embedding
@@ -76,69 +66,48 @@ doDRclu=function(x,resol){
      ## "regular" UMAP
      x <- RunUMAP(x, reduction = "pca", dims = 1:50,n.neighbors=30, min.dist=0.5, reduction.name="uglobal")
      return(x)
- }
- 
+ } 
  for(i in 1:length(rawdata_paths)){
-    ## --- READ data
-     
-     s=readRaw(rawdata_paths[i])
-    
-    print(summary(s$nCount_RNA))
-    
-        
+    ## --- READ data  
+     s=readRaw(rawdata_paths[i])    
+    print(summary(s$nCount_RNA))       
    # as recommended by tool
    s=s[,s$nCount_RNA>500]
    # normalize
    s=NormalizeData(s)
    s=FindVariableFeatures(s, selection.method = "vst", nfeatures = 3000)
    s=ScaleData(s)
-   s=RunPCA(s, ndims.print=1, nfeatures.print=1)
-   
+   s=RunPCA(s, ndims.print=1, nfeatures.print=1)  
    ## the resolution here may need adjusting ; lower value for res results in less clusters
-  s=doDRclu(s,res=1)
-   
+  s=doDRclu(s,res=1) 
    print("performing doublet detection for object with dims:")
    print(dim(s))
-  
   ## default run; no info passed about doublets, no user-specified cluster info
-  sce_simple <- scDblFinder(GetAssayData(s, slot="counts"))
-  
+  sce_simple <- scDblFinder(GetAssayData(s, slot="counts")) 
   ## add the resulting score and classification to object metadata
   s$scDblFinder.score <- sce_simple$scDblFinder.score
   s$scDblFinder.class <-sce_simple$scDblFinder.class
- 
   ## Also the [[ operator can add columns to object metadata. Add mitochondrial gene percentage as additional QC stats
   s[["percent.mt"]] <- PercentageFeatureSet(s, pattern = "^MT-")
- 
   print(summary(s$percent.mt))
-  
   ## check that metadata now includes the results
   print(colnames(s[[]]))
-
   saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj1.rds"))
-  
   ## plot result, dimplot colors by group on UMAP, featureplot colors by score on UMAP and violin plot
- 
  ## remove detected doublets
  s=s[,s$scDblFinder.class!="doublet"]
  print(dim(s))
- 
- 
  qc_fail=rep(F, ncol(s))
   ## adjust as seems best fitting to the data basic initial filtering to remove most likely poor quality cell data
-
  ## drop lowest 5% by number of genes detected (nFeature_RNA)
  ## drop highest 95% by mitochondrial gene proportion
  qc_fail=qc_fail|s$nFeature_RNA<quantile(s$nFeature_RNA,.05)|s$percent.mt>quantile(s$percent.mt,.95)
- 
  ## filter more stringent if both qc metrics indicate poor quality
  ## lowest 10% by number of genes detected AND lowest 10% by nCounts AND highest 10% by mitochondrial proportion
  qc_fail=qc_fail|(s$nFeature_RNA<quantile(s$nFeature_RNA,.10)  & s$nCount_RNA<quantile(s$nCount_RNA,.10)&s$percent.mt>quantile(s$percent.mt,.10))
- 
  s=s[,!qc_fail]
  print("object size after initial QC filtering :")
  print(dim(s))
- 
  ## typically the data shows different QC distributions by cluster, this step performs QC filtering by cluster (N.B. using existing clusters)
  ## outliers (smallest/largest) are flagged based on 2*median absolute deviation+ 
  sclu=as.vector(unique(s$seurat_clusters))
@@ -153,33 +122,46 @@ doDRclu=function(x,resol){
      qc_fail=qc_fail|(s$seurat_clusters==sclu[j]&(s$nFeature_RNA<feat_size_min|s$nFeature_RNA>feat_size_max|s$nCount_RNA<rna_size_min|s$nCount_RNA>rna_size_max))
  } 
  ## add this info to first plot and then remove
- s=AddMetaData(s, qc_fail, col.name="qc_flag_final")
- 
+ s=AddMetaData(s, qc_fail, col.name="qc_flag_final") 
  saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj2.rds"))
- s=s[,!s$qc_flag_final]
- 
+ s=s[,!s$qc_flag_final] 
  ## --- NORMALIZE, scale, calculate dimensionality reductions on rna data
  s=NormalizeData(s)
  s=FindVariableFeatures(s, selection.method = "vst", nfeatures = 3000)
  s=ScaleData(s)
  s=RunPCA(s, ndims.print=1, nfeatures.print=1)
  s=doDRclu(s,res=1)
- s=doDRclu_highres(s,res=2)
- 
+ s=doDRclu_highres(s,res=2) 
  colnames(s[[]])
  
- 
- 
- saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj3.rds"))
-  
-  
+ saveRDS(s, file=paste0(resDir,samples[i],"_LogNorm_filt_obj3.rds"))  
  }
 
+
+
 #save as h5ad
+DefaultAssay(sobj) <- "RNA"
+sobj[['RNA']]@var.features <- rownames(sobj[['RNA']])
+
 library(SeuratDisk)
 SaveH5Seurat(sobj, filename = "D40.h5Seurat")
 Convert("D40.h5Seurat", dest = "h5ad")
 
-## gene annotation
-https://medium.com/intothegenomics/annotate-genes-and-genomic-coordinates-using-python-9259efa6ffc2
 
+## gene annotation (Python)
+https://medium.com/intothegenomics/annotate-genes-and-genomic-coordinates-using-python-9259efa6ffc2
+gencode = pd.read_table("genehg20.gff3", comment="#",
+                        sep = "\t", names = ['chromosome', 'source', 'feature', 'start' , 'end', 'score', 'strand', 'frame', 'attribute'])
+gencode_genes = gencode[(gencode.feature == "gene")][['chromosome', 'start', 'end', 'attribute']].copy().reset_index().drop('index', axis=1)
+def gene_info(x):
+    # Extract gene names
+    g_name = list(filter(lambda x: 'gene_name' in x,  x.split(";")))[0].split("=")[1]
+    g_type = list(filter(lambda x: 'gene_type' in x,  x.split(";")))[0].split("=")[1]
+    g_status = list(filter(lambda x: 'gene_id' in x,  x.split(";")))[0].split("=")[1]
+    g_leve = int(list(filter(lambda x: 'level' in x,  x.split(";")))[0].split("=")[1])
+    return (g_name, g_type, g_status, g_leve)
+gencode_genes["gene_name"], gencode_genes["gene_type"], gencode_genes["gene_id"], gencode_genes["gene_level"] = zip(*gencode_genes.attribute.apply(lambda x: gene_info(x)))
+gencode_genes['gene_type'].drop_duplicates()
+#gencode_genes = gencode_genes[gencode_genes['gene_type'] == 'protein_coding'].reset_index().drop('index', axis=1)
+gencode_genes = gencode_genes.sort_values(['gene_level', 'chromosome'], ascending=True).drop_duplicates('gene_name', keep='first').reset_index().drop('index', axis=1) 
+#gencode_genes.head()
