@@ -3,8 +3,12 @@
 library(SCEVAN)
 library(Seurat)
 
+cell_barcodes <- read.table("/path/to/ref/cells/SCEVAN.txt" , header = FALSE, sep = "\n", stringsAsFactors = FALSE)
+norm_cells <- cell_barcodes$V1
+
 data <- readRDS("file.rds")
 sobj <- UpdateSeuratObject(object = data)
+DefaultAssay(sobj) <- "RNA" 
 count_mtx <- as.matrix(sobj@assays$RNA@data)
 
 # default run
@@ -22,4 +26,4 @@ results <- pipelineCNA(
 )
 
 # in-house version
-SCEVAN::pipelineCNA_Partial(count_mtx, sample="EXAMPLE", steps_to_run = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), saveInputValues = TRUE)
+SCEVAN::pipelineCNA_Partial(count_mtx, norm_cell = norm_cells, sample="EXAMPLE", steps_to_run = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), saveInputValues = TRUE,  par_cores = 1)
