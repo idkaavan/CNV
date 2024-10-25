@@ -70,7 +70,18 @@ write.table(bed_data, file = bed_file, quote = FALSE, sep = "\t", row.names = FA
 module load bedtools/2.30.0
 bedtools sort -i x_gene.bed > x_gene_sort.bed
 
-# filter out the ENCODE blacklist hg19.v2 (overlapping by >= 50%)
+# filter out the ENCODE blacklist hg38.v2 (overlapping by >= 50%)
+%%bash
+module load bedtools/2.30.0
+a_dir="path/"
+b_file="blacklist/hg38-blacklist.v2.bed"
+for a_file in "$a_dir"/*.bed; do
+    output_file="${a_file%.bed}_blck.bed"
+    bedtools intersect -a "$a_file" -b "$b_file" -f 0.50 -v > "$output_file" 
+    echo "Processed $a_file and saved as $output_file"
+done
+
+# filter out the ENCODE blacklist (all overlaps)
 %%bash
 module load bedtools/2.30.0
 input_peak_bed_file="x_gene_sort.bed"
