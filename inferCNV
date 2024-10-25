@@ -48,3 +48,43 @@ infercnv_obj = infercnv::run(infercnv_obj,
                              leiden_resolution = 0.01
                              )
 
+## generate bed files from segments output
+file <- file.path("HMM_CNV_predictions.HMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.pred_cnv_regions.dat")
+seg_data <- read.table(file, header=TRUE, sep="\t")
+convert_to_bed <- function(seg_dat) {
+  bed_data <- data.frame(
+    chrom = seg_data$chr,
+    start = seg_data$start - 1,
+    end = seg_data$end,
+    name = seg_data$cell_group_name,
+    score = seg_data$state
+  )
+  return(bed_data)
+}
+bed_data <- convert_to_bed(seg_data)
+bed_file <- file.path("x_gene.bed")
+write.table(bed_data, file = bed_file, quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
+
+# sort
+%%bash
+module load bedtools/2.30.0
+bedtools sort -i x_gene.bed > x_gene_sort.bed
+
+# filter out the ENCODE blacklist hg19.v2 (overlapping by >= 50%)
+%%bash
+module load bedtools/2.30.0
+input_peak_bed_file="x_gene_sort.bed"
+blacklist_file="blacklist/hg38-blacklist.v2.bed"
+chrom_sizes_file="chromsizes.bed"
+output_peak_bed_file="x_gene_blck.bed"
+bedtools subtract \
+        -A \
+        -wa \
+        -g "${chrom_sizes_file}" \
+        -a "${input_peak_bed_file}" \
+        -b "${blacklist_file}" \
+      | bedtools sort \
+            -g "${chrom_sizes_file}" \
+            -i stdin \
+      > "${output_peak_bed_file}"
+
