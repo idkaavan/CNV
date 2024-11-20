@@ -33,13 +33,19 @@ for a_file in "$a_dir"/*_sort.bed; do
 done
 
 ## intersect
-bedtools intersect -a D_42_cnvs.bed -b 42D_sort_blck05.bed -wao
+bedtools intersect -a D_42_cnvs.bed -b 42D_sort_blck05.bed -wao > 42D_intersect.bed
 
-## remove doublets and unique signals in scRNA
-import pandas as pd
-
-# Read the file into a pandas DataFrame (TP+FP)
+## remove doublets and keep unique signals in scRNA (TP+FP)
 file_path = "42D_sort_blck05.bed"
+df = pd.read_csv(file_path, sep="\t", header=None)
+df.columns = ['chr1', 'start1', 'end1', 'cnv_name1', 'state1']
+df = df.drop_duplicates(subset=['start1', 'end1', 'state1'])
+output_path = "TPFP.bed"
+df.to_csv(output_path, sep="\t", index=False, header=False)
+
+## remove doublets and keep unique signals in scRNA (TP)
+import pandas as pd
+file_path = "42D_intrsect.bed"
 df = pd.read_csv(file_path, sep="\t", header=None)
 df.columns = ['chr1', 'start1', 'end1', 'state1', 'cnv_name1', 'cnv_type1', 
               'cnv_size1', 'chr2', 'start2', 'end2', 'group', 'state2', 'cnv_size2']
@@ -53,18 +59,12 @@ state_mapping = {
 }
 df['state2_category'] = df['state2'].map(state_mapping)
 df_unique = df.drop_duplicates(subset=['start2', 'end2', 'state2_category'])
-output_path = "42D_def_rows.bed"
-df_unique.to_csv(output_path, sep="\t", index=False, header=False)
-
-## TP
-file_path = "42D_def_rows.bed"
-df = pd.read_csv(file_path, sep="\t", header=None)
-df.columns = ['chr1', 'start1', 'end1', 'state1', 'cnv_name1', 'cnv_type1', 
+df_unique.columns = ['chr1', 'start1', 'end1', 'state1', 'cnv_name1', 'cnv_type1', 
               'cnv_size1', 'chr2', 'start2', 'end2', 'group', 'state2', 'cnv_size2', 'state2_category']
-filtered_df = df[
-    ((df['cnv_type1'] == 'DEL') & (df['state2_category'] == 'loss')) |  # DEL and loss
-    ((df['cnv_type1'] == 'DUP') & (df['state2_category'] == 'gain')) |  # DUP and gain
-    (df['cnv_type1'] == 'LOH')  # LOH in column 6
+filtered_df = df_unique[
+    ((df_unique['cnv_type1'] == 'DEL') & (df_unique['state2_category'] == 'loss')) |  # DEL and loss
+    ((df_unique['cnv_type1'] == 'DUP') & (df_unique['state2_category'] == 'gain')) |  # DUP and gain
+    (df_unique['cnv_type1'] == 'LOH')  # LOH in column 6
 ]
 summary_counts = filtered_df.shape[0]
 print(filtered_df)
