@@ -1,4 +1,4 @@
-## SingleR (R)
+## SingleR (R): https://bioconductor.org/books/release/SingleRBook/index.html
 
 library(Seurat)
 library(SingleR)
