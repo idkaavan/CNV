@@ -1,4 +1,5 @@
 ## SingleR (R): https://bioconductor.org/books/release/SingleRBook/index.html
+### further analysis: https://bioconductor.org/books/release/SingleRBook/
 
 library(Seurat)
 library(SingleR)
