@@ -12,6 +12,8 @@ ref <- celldex::HumanPrimaryCellAtlasData()
 
 data <- readRDS(".rds")
 sobj <- UpdateSeuratObject(object = data)
+data <- NormalizeData(data)
+data <- ScaleData(data)
 
 results <- SingleR(test = as.SingleCellExperiment(sobj), ref = ref, labels = ref$label.main)
 sobj$singlr_labels <- results$labels
