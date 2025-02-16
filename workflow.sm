@@ -2,7 +2,7 @@
 # Pipeline to benchmark scRNA-seq CNV callers with different datasets
 # ------------------------------------------------------------------------------
 
-localrules: run_honeybadger_preprocessing, run_casper_gene_annot, CONICSmat_import_data
+localrules: CONICSmat_import_data
 
 # ------------------------------------------------------------------------------
 # Run inferCNV 
@@ -13,7 +13,7 @@ rule run_infercnv:
 		matrix = "data/input_{dataset}/count_matrix.txt",
 		annot = "data/input_{dataset}/sample_annotation.txt",
 		ref_groups = "data/input_{dataset}/ref_groups.txt",
-		gene_pos = "data/annotations/hg38_gencode_v27.txt"
+		gene_pos = "data/annotations/geneshg20_order.txt"
 	output:
 		cnv_file = "results/output_{dataset}/infercnv/infercnv.observations.txt",
 		states_file = "results/output_{dataset}/infercnv/infercnv.20_HMM_predHMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.repr_intensities.observations.txt"
@@ -28,50 +28,6 @@ rule run_infercnv:
 		time = "24:00:00"
 	script:
 		"scripts/inferCNV.R"
-
-# ------------------------------------------------------------------------------
-# Run copyKat (two different modes: with and without specifying the reference cells)
-# ------------------------------------------------------------------------------
-
-rule run_copykat:
-	input:
-		matrix = "data/input_{dataset}/count_matrix.txt",
-		annot = "data/input_{dataset}/sample_annotation.txt",
-		ref_groups = "data/input_{dataset}/ref_groups.txt"
-	output:
-		cnv_file = "results/output_{dataset}/copykat/{dataset}_copykat_CNA_results.txt",
-		pred_file = "results/output_{dataset}/copykat/{dataset}_copykat_prediction.txt",
-		cnv_per_cell = "results/output_{dataset}/copykat/{dataset}_copykat_CNA_raw_results_gene_by_cell.txt"
-	log:
-		"logs/copykat_{dataset}.log"
-	benchmark:
-		"benchmarks/copykat_{dataset}_benchmark.txt"
-	threads: 1
-	resources:
-		mem_mb = 32000
-	params:
-		time = "24:00:00"
-	script:
-		"scripts/copykat.R"
-
-rule run_copykat_predict_cancer_cells:
-	input:
-		matrix = "data/input_{dataset}/count_matrix.txt"
-	output:
-		cnv_file = "results/output_{dataset}/copykat_predict_cancer_cells/{dataset}_copykat_CNA_results.txt",
-		pred_file = "results/output_{dataset}/copykat_predict_cancer_cells/{dataset}_copykat_prediction.txt",
-		cnv_per_cell = "results/output_{dataset}/copykat_predict_cancer_cells/{dataset}_copykat_CNA_raw_results_gene_by_cell.txt"
-	log:
-		"logs/copykat_predict_{dataset}.log"
-	benchmark:
-		"benchmarks/copykat_predict_{dataset}_benchmark.txt"
-	threads: 1
-	resources:
-		mem_mb = 32000
-	params:
-		time = "24:00:00"
-	script:
-		"scripts/copykat.R"
 
 # ------------------------------------------------------------------------------
 # Run SCEVAN (two different modes: with and without specifying the reference cells)
@@ -122,105 +78,6 @@ rule run_SCEVAN_predict_cancer_cells:
 	script:
 		"scripts/scevan.R"
 
-
-# ------------------------------------------------------------------------------
-# Run Casper (3 steps: calculate BAF, get gene annotations and run the methods)
-# Remark: due to specification of our cluster, the second rule is run locally
-#         (as it requires internet access not possible otherwise)
-# ------------------------------------------------------------------------------
-
-rule run_BAFextract_casper:
-	input:
-		bam_file = "data/input_{dataset}/possorted_genome_bam.bam",
-	output:
-		out_dir = directory("results/output_{dataset}/casper/{dataset}_bins_BAFExtract"),
-		af = "results/output_{dataset}/casper/{dataset}_BAFExtract/{dataset}_BAFExtract.af"
-	log:
-		"logs/casper_preprocess_{dataset}.log"
-	benchmark:
-		"benchmarks/casper_preprocess_{dataset}_benchmark.txt"
-	threads: 1
-	resources:
-		mem_mb = 24000
-	params:
-		time = "24:00:00",
-		genome_list = "data/annotations/genome_input_BAFExtract_hg38/hg38_genome_list",
-		genome = "data/annotations/genome_input_BAFExtract_hg38/hg38"
-	shell:
-		r"""mkdir -p {output.out_dir}
-			samtools view {input.bam_file} | tools/BAFExtract/bin/BAFExtract -generate_compressed_pileup_per_SAM stdin {params.genome_list} {output.out_dir} 50 0
-			tools/BAFExtract/bin/BAFExtract -get_SNVs_per_pileup {params.genome_list} {output.out_dir} {params.genome} 20 4 0.1 {output.af}
-		"""
-
-rule run_casper_gene_annot:
-	input:
-		matrix = "data/input_{dataset}/count_matrix.txt"
-	output:
-		gene_annot = "results/output_{dataset}/casper/gene_annotation_casper_{dataset}.tsv"
-	log:
-		"logs/casper_gene_annot_{dataset}.log"
-	benchmark:
-		"benchmarks/casper_gene_annot_{dataset}_benchmark.txt"
-	script:
-		"scripts/casper_gene_annotations.R"
-
-rule run_casper:
-	input:
-		matrix = "data/input_{dataset}/count_matrix.txt",
-		annot = "data/input_{dataset}/sample_annotation.txt",
-		ref_groups = "data/input_{dataset}/ref_groups.txt",
-		gene_annot = "results/output_{dataset}/casper/gene_annotation_casper_{dataset}.tsv",
-		af = "results/output_{dataset}/casper/{dataset}_BAFExtract/{dataset}_BAFExtract.af"
-	output:
-		casper_cellmatrix = "results/output_{dataset}/casper/{dataset}_casper_cell_matrix.tsv",
-		casper_pseudobulk =  "results/output_{dataset}/casper/{dataset}_casper_pseudobulk_aggregate.RDS",
-		casper_clusters = "results/output_{dataset}/casper/{dataset}_casper_hclust.RDS",
-		casper_plot_density = "results/output_{dataset}/casper/{dataset}_casper_densities.pdf",
-		casper_plot_large_events = "results/output_{dataset}/casper/{dataset}_casper_large_events.png",
-		casper_plot_heatmap = "results/output_{dataset}/casper/{dataset}_casper_heatmap.png",
-		casper_plot_baf = "results/output_{dataset}/casper/{dataset}_casper_baf.png"
-	log:
-		"logs/casper_{dataset}.log"
-	benchmark:
-		"benchmarks/casper_{dataset}_benchmark.txt"
-	threads: 1
-	resources:
-		mem_mb = 64000
-	params:
-		segment_gamma = 7,
-		time = "48:00:00"
-	script:
-		"scripts/casper.R"
-
-
-rule run_casper_strict_filter:
-	input:
-		matrix = "data/input_{dataset}/count_matrix.txt",
-		annot = "data/input_{dataset}/sample_annotation.txt",
-		ref_groups = "data/input_{dataset}/ref_groups.txt",
-		gene_annot = "results/output_{dataset}/casper/gene_annotation_casper_{dataset}.tsv",
-		af = "results/output_{dataset}/casper/{dataset}_BAFExtract/{dataset}_BAFExtract.af"
-	output:
-		casper_cellmatrix = "results/output_{dataset}/casper_strict/{dataset}_casper_cell_matrix.tsv",
-		casper_pseudobulk =  "results/output_{dataset}/casper_strict/{dataset}_casper_pseudobulk_aggregate.RDS",
-		casper_clusters = "results/output_{dataset}/casper_strict/{dataset}_casper_hclust.RDS",
-		casper_plot_density = "results/output_{dataset}/casper_strict/{dataset}_casper_densities.pdf",
-		casper_plot_large_events = "results/output_{dataset}/casper_strict/{dataset}_casper_large_events.png",
-		casper_plot_heatmap = "results/output_{dataset}/casper_strict/{dataset}_casper_heatmap.png",
-		casper_plot_baf = "results/output_{dataset}/casper_strict/{dataset}_casper_baf.png"
-	log:
-		"logs/casp_strict_filter_{dataset}.log"
-	benchmark:
-		"benchmarks/casper_{dataset}_benchmark_strict_filter.txt"
-	threads: 1
-	resources:
-		mem_mb = 64000
-	params:
-		segment_gamma = 7,
-		expr_cutoff = 4.5,
-		time = "48:00:00"
-	script:
-		"scripts/casper.R"
 
 # ------------------------------------------------------------------------------
 # Run Numbat 
@@ -382,143 +239,30 @@ rule run_CONICSmat_predict_cancer_cells:
 # Running all methods on the SNU601 dataset
 # ------------------------------------------------------------------------------
 
-rule all_cnv_methods_SNU601:		
+rule all_cnv_methods:		
 	input:
- 		"results/output_SNU601/infercnv/infercnv.observations.txt",
-		"results/output_SNU601/copykat/SNU601_copykat_CNA_results.txt",
-		"results/output_SNU601/copykat_predict_cancer_cells/SNU601_copykat_CNA_results.txt",
-		"results/output_SNU601/scevan/output/SNU601_subclone1_CN.seg",
-		"results/output_SNU601/casper/SNU601_casper_pseudobulk_aggregate.RDS",
-		"results/output_SNU601/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_SNU601/CONICSmat/cnv_types.tsv",
-		"results/output_SNU601/CONICSmat_predict_cancer_cells/tumor_pred.tsv"
-
-# ------------------------------------------------------------------------------
-# Running all methods on the MCF7 dataset
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_MCF7:		
-	input:
- 		"results/output_MCF7/infercnv/infercnv.observations.txt",
-		"results/output_MCF7/copykat/MCF7_copykat_CNA_results.txt",
-		"results/output_MCF7/scevan/output/MCF7_subclone1_CN.seg",
-		"results/output_MCF7/honeybadger_expr/MCF7_honeybadger_cnvs.txt",
-		"results/output_MCF7/casper/MCF7_casper_pseudobulk_aggregate.RDS",
-		"results/output_MCF7/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_MCF7/CONICSmat/cnv_types.tsv"
-
-# ------------------------------------------------------------------------------
-# Running all methods on the MM dataset
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_MM:		
-	input:
-		"results/output_MM/infercnv/infercnv.observations.txt",
-		"results/output_MM/copykat/MM_copykat_CNA_results.txt",
-		"results/output_MM/scevan/output/MM_subclone1_CN.seg",
-		"results/output_MM/honeybadger_expr/MM_honeybadger_cnvs.txt",
-		"results/output_MM/casper/MM_casper_pseudobulk_aggregate.RDS",
-		"results/output_MM/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_MM/CONICSmat/cnv_types.tsv",
-		"results/output_MM/copykat_predict_cancer_cells/MM_copykat_CNA_results.txt",
-		"results/output_MM/scevan_predict_cancer_cells/output/MM_subclone1_CN.seg"
-
-# ------------------------------------------------------------------------------
-# Running all methods on the COLO320 dataset
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_COLO320:		
-	input:
-		"results/output_COLO320/infercnv/infercnv.observations.txt",
-		"results/output_COLO320/copykat/COLO320_copykat_CNA_results.txt",
-		"results/output_COLO320/scevan/output/COLO320_subclone1_CN.seg",
-		"results/output_COLO320/honeybadger_expr/COLO320_honeybadger_cnvs.txt",
-		"results/output_COLO320/casper/COLO320_casper_pseudobulk_aggregate.RDS",
-		"results/output_COLO320/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_COLO320/CONICSmat/cnv_types.tsv"
-
-# ------------------------------------------------------------------------------
-# Running all methods on the BCC dataset - sample 06 pre treatment
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_BCC06:		
-	input:
-		"results/output_BCC06/infercnv/infercnv.observations.txt",
-		"results/output_BCC06/copykat/BCC06_copykat_CNA_results.txt",
-		"results/output_BCC06/scevan/output/BCC06_subclone1_CN.seg",
-		"results/output_BCC06/casper/BCC06_casper_pseudobulk_aggregate.RDS",
-		"results/output_BCC06/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_BCC06/CONICSmat/cnv_types.tsv"
-
-
-# ------------------------------------------------------------------------------
-# Running all methods on the BCC dataset - sample 06 post treatment
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_BCC06post:		
-	input:
-		"results/output_BCC06post/infercnv/infercnv.observations.txt",
-		"results/output_BCC06post/copykat/BCC06post_copykat_CNA_results.txt",
-		"results/output_BCC06post/scevan/output/BCC06post_subclone1_CN.seg",
-		"results/output_BCC06post/casper/BCC06post_casper_pseudobulk_aggregate.RDS",
-		"results/output_BCC06post/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_BCC06post/CONICSmat/cnv_types.tsv"
-
-
-# ------------------------------------------------------------------------------
-# Running one method on BCC05 and BCC07 to have the different profiles for all cells
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_BCC0507:		
-	input:
-		"results/output_BCC05/copykat/BCC05_copykat_CNA_results.txt",
-		"results/output_BCC07/copykat/BCC07_copykat_CNA_results.txt"
-
-
-# ------------------------------------------------------------------------------
-# Running all methods on the PBMC dataset - check performance on a diploid sample
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_pbmc:		
-	input:
-		"results/output_pbmc/infercnv/infercnv.observations.txt",
-		"results/output_pbmc/copykat/pbmc_copykat_CNA_results.txt",
-		"results/output_pbmc/scevan/output/pbmc_subclone1_CN.seg",
-		"results/output_pbmc/CONICSmat/cnv_types.tsv",
-		"results/output_pbmc/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_pbmc/casper/pbmc_casper_pseudobulk_aggregate.RDS"
-
-# ------------------------------------------------------------------------------
-# Running all methods on the BCC dataset (all samples combined) -
-# to evaluate how well substuctures (subclones/here different samples) 
-# can be identified
-# ------------------------------------------------------------------------------
-
-rule all_cnv_methods_BCC:		
-	input:
-		"results/output_BCC/infercnv/infercnv.observations.txt",
-		"results/output_BCC/copykat/BCC_copykat_CNA_results.txt",
-		"results/output_BCC/scevan/output/BCC_subclone1_CN.seg",
-		"results/output_BCC/CONICSmat/cnv_types.tsv",
-		"results/output_BCC/numbat/gexp_roll_wide.tsv.gz",
-		"results/output_BCC/casper/BCC_casper_pseudobulk_aggregate.RDS"
+ 		"results/output/infercnv/infercnv.observations.txt",
+		"results/output/scevan/output/SNU601_subclone1_CN.seg",
+		"results/output/numbat/gexp_roll_wide.tsv.gz",
+		"results/output/CONICSmat/cnv_types.tsv",
+		"results/output/CONICSmat_predict_cancer_cells/tumor_pred.tsv"
 
 # ------------------------------------------------------------------------------
 # Evaluate the results
 # ------------------------------------------------------------------------------
 
-#Identify all methods that were run succssfully on the SNU601 dataset
-METHODS = glob_wildcards("benchmarks/{i}_SNU601_benchmark.txt").i
+#Identify all methods that were run succssfully on the dataset
+METHODS = glob_wildcards("benchmarks/{i}_benchmark.txt").i
 
 #Evaluate runtime and memory on the SNU601 dataset
-rule evaluate_resources_SNU601:
+rule evaluate_resources:
 	input:
-		expand("benchmarks/{i}_SNU601_benchmark.txt",i=METHODS)
+		expand("benchmarks/{i}_benchmark.txt",i=METHODS)
 	output:
-		plot = "results/output_SNU601/evaluation/SNU601_resources_required.png",
-		file = "results/output_SNU601/evaluation/SNU601_resources_required.txt"
+		plot = "results/output/evaluation/resources_required.png",
+		file = "results/output/evaluation/resources_required.txt"
 	log:
-		"logs/evaluate_resources_SNU601.log",
+		"logs/evaluate_resources.log",
 	threads:1
 	resources:
 		mem_mb = 8000
@@ -531,7 +275,6 @@ rule evaluate_cancer_cell_prediction:
 	input:
 		annot_truth = "data/input_{dataset}/sample_annotation.txt",
 		ref_groups = "data/input_{dataset}/ref_groups.txt",
-		copykat_pred = "results/output_{dataset}/copykat_predict_cancer_cells/{dataset}_copykat_prediction.txt",
 		scevan_pred = "results/output_{dataset}/scevan_predict_cancer_cells/output/{dataset}_scevan_prediction.txt",
 		numbat_pred = "results/output_{dataset}/numbat_predict_cancer_cells/gexp_roll_wide.tsv.gz"
 	output:
@@ -555,9 +298,7 @@ rule evaluate_cnv_prediction_wgs:
 		genomic_ground_truth = "data/{dataset}_WGS_groundtruth/wgs_results_formated.csv",
 		infercnv_cnv = "results/output_{dataset}/infercnv/infercnv.20_HMM_predHMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.repr_intensities.observations.txt",
 		infercnv_expr = "results/output_{dataset}/infercnv/infercnv.observations.txt",
-		infercnv_gene_pos = "data/annotations/hg38_gencode_v27.txt",
-		casper = "results/output_{dataset}/casper/{dataset}_casper_pseudobulk_aggregate.RDS",
-		copykat = "results/output_{dataset}/copykat/{dataset}_copykat_CNA_raw_results_gene_by_cell.txt",
+		infercnv_gene_pos = "data/annotations/geneshg20_order.txt",
 		scevan = "results/output_{dataset}/scevan/output/{dataset}_CNAmtxSubclones.RData",
 		scevan_gene_pos = "results/output_{dataset}/scevan/output/{dataset}_count_mtx_annot.RData",
 		scevan_clone1 = "results/output_{dataset}/scevan/output/{dataset}_subclone1_CN.seg",
@@ -596,9 +337,7 @@ rule evaluate_cnv_prediction_permethod:
 		genomic_ground_truth = "data/{dataset}_WGS_groundtruth/wgs_results_formated.csv",
 		infercnv_cnv = "results/output_{dataset}/infercnv/infercnv.20_HMM_predHMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.repr_intensities.observations.txt",
 		infercnv_expr = "results/output_{dataset}/infercnv/infercnv.observations.txt",
-		infercnv_gene_pos = "data/annotations/hg38_gencode_v27.txt",
-		casper = "results/output_{dataset}/casper/{dataset}_casper_pseudobulk_aggregate.RDS",
-		copykat = "results/output_{dataset}/copykat/{dataset}_copykat_CNA_raw_results_gene_by_cell.txt",
+		infercnv_gene_pos = "data/annotations/geneshg20_order.txt",
 		scevan = "results/output_{dataset}/scevan/output/{dataset}_CNAmtxSubclones.RData",
 		scevan_gene_pos = "results/output_{dataset}/scevan/output/{dataset}_count_mtx_annot.RData",
 		scevan_clone1 = "results/output_{dataset}/scevan/output/{dataset}_subclone1_CN.seg",
@@ -623,10 +362,7 @@ rule evaluate_cnv_prediction_percell:
 		combined_res = "results/output_{dataset}/evaluation/outputs_allmethods_combined.tsv",
 		infercnv_cnv = "results/output_{dataset}/infercnv/infercnv.20_HMM_predHMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.repr_intensities.observations.txt",
 		infercnv_expr = "results/output_{dataset}/infercnv/infercnv.observations.txt",
-		infercnv_gene_pos = "data/annotations/hg38_gencode_v27.txt",
-		casper_grange = "results/output_{dataset}/casper/{dataset}_casper_pseudobulk_aggregate.RDS",
-		casper_cells = "results/output_{dataset}/casper/{dataset}_casper_cell_matrix.tsv",
-		copykat = "results/output_{dataset}/copykat/{dataset}_copykat_CNA_raw_results_gene_by_cell.txt",
+		infercnv_gene_pos = "data/annotations/geneshg20_order.txt",
 		scevan = "results/output_{dataset}/scevan/output/{dataset}_CNAmtxSubclones.RData",
 		scevan_gene_pos = "results/output_{dataset}/scevan/output/{dataset}_count_mtx_annot.RData",
 		scevan_clone1 = "results/output_{dataset}/scevan/output/{dataset}_subclone1_CN.seg",
@@ -653,15 +389,15 @@ rule evaluate_cnv_prediction_percell:
 
 rule all_evaluations_SNU601:		
 	input:
- 		"results/output_SNU601/evaluation/SNU601_resources_required.png",
-		"results/output_SNU601/evaluation/evaluation_cnv_prediction_auc.pdf",
-		"results/output_SNU601/evaluation/evaluation_cnv_prediction_permethod.tsv",
-		"results/output_SNU601/evaluation/SNU601_evaluation_per_cell_results.tsv",
-		"results/output_SNU601/casper_strict/SNU601_casper_cell_matrix.tsv" 
+ 		"results/output/evaluation/resources_required.png",
+		"results/output/evaluation/evaluation_cnv_prediction_auc.pdf",
+		"results/output/evaluation/evaluation_cnv_prediction_permethod.tsv",
+		"results/output/evaluation/evaluation_per_cell_results.tsv",
+		"results/output/casper_strict/casper_cell_matrix.tsv" 
 
 
 # ------------------------------------------------------------------------------
-# Evaluate different SN601 CNV predictions with different reference sets
+# Evaluate different CNV predictions with different reference sets
 # ------------------------------------------------------------------------------
 
 rule all_evaluations_SNU601_diffrefs:
