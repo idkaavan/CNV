@@ -84,45 +84,12 @@ rule run_SCEVAN_predict_cancer_cells:
 # (second option: run all cells together (external reference) and predict cancer cells)
 # ------------------------------------------------------------------------------
 
-rule numbat_preprocessing:
-	input:
-		bam_file = "data/input_{dataset}/possorted_genome_bam.bam",
-		barcodes_df = "data/input_{dataset}/barcodes.tsv.gz",
-		snp_vcf = "data/annotations/genome1K.phase3.SNP_AF5e2.chr1toX.hg38.vcf.gz",
-		eagle_gmap = "data/annotations/genetic_map_hg38_withX.txt.gz"
-	output:
-		df_allele = "results/output_{dataset}/numbat/{dataset}_allele_counts.tsv.gz"
-	log:
-		"logs/numbat_preprocessing_{dataset}.log"
-	benchmark:
-		"benchmarks/numbat_preprocessing_{dataset}_benchmark.txt"
-	threads: 1
-	resources:
-		mem_mb = 32000
-	params:
-		time = "24:00:00",
-		ref_panel = "data/annotations/1000G_hg38",
-		out_dir = "results/output_{dataset}/numbat/"
-	shell:
-		r"""Rscript scripts/pileup_and_phase.R \
-			--label {wildcards.dataset} \
-			--samples {wildcards.dataset} \
-			--bams {input.bam_file} \
-			--barcodes {input.barcodes_df} \
-			--outdir {params.out_dir} \
-			--gmap {input.eagle_gmap} \
-			--eagle tools/Eagle_v2.4.1/eagle \
-			--snpvcf {input.snp_vcf} \
-			--paneldir {params.ref_panel} \
-			--ncores {threads} > {log}
-		"""
-
 rule run_numbat:
 	input:
 		count_mat = "data/input_{dataset}/count_matrix.txt",
 		annot = "data/input_{dataset}/sample_annotation.txt",
 		ref_groups = "data/input_{dataset}/ref_groups.txt",
-		df_allele = "results/output_{dataset}/numbat/{dataset}_allele_counts.tsv.gz"
+		df_allele = "data/input_{dataset}/{dataset}_allele_counts.tsv.gz"
 	output:
 		cnv_expr = "results/output_{dataset}/numbat/gexp_roll_wide.tsv.gz",
 		clones_numbat =  "results/output_{dataset}/numbat/clone_post_2.tsv"
@@ -242,7 +209,7 @@ rule run_CONICSmat_predict_cancer_cells:
 rule all_cnv_methods:		
 	input:
  		"results/output/infercnv/infercnv.observations.txt",
-		"results/output/scevan/output/SNU601_subclone1_CN.seg",
+		"results/output/scevan/output/{dataset}_subclone1_CN.seg",
 		"results/output/numbat/gexp_roll_wide.tsv.gz",
 		"results/output/CONICSmat/cnv_types.tsv",
 		"results/output/CONICSmat_predict_cancer_cells/tumor_pred.tsv"
@@ -393,8 +360,6 @@ rule all_evaluations_SNU601:
 		"results/output/evaluation/evaluation_cnv_prediction_auc.pdf",
 		"results/output/evaluation/evaluation_cnv_prediction_permethod.tsv",
 		"results/output/evaluation/evaluation_per_cell_results.tsv",
-		"results/output/casper_strict/casper_cell_matrix.tsv" 
-
 
 # ------------------------------------------------------------------------------
 # Evaluate different CNV predictions with different reference sets
