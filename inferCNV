@@ -15,91 +15,35 @@ singularity shell --writable-tmpfs -e -B '/research/groups/bioinformaticians/int
 # type R and load libraries
 
 # create infercnv object from seurat object (gene x cell count matrix), cell annotation as tab-delimited txt file, gene coordinates (chr, start, end)
-data <- readRDS("file.rds")
-# seurat v5, if v4 use CreateSeuratObject
-sobj <- UpdateSeuratObject(object = data)
-cell_annotation <- file.path("", "cellannotation.txt")
-gene_ordering_file <- file.path("", "gene_order.txt")
-infercnv_obj = CreateInfercnvObject(raw_counts_matrix=LayerData(sobj, assay = "RNA", layer = "data"),
+library(Seurat)
+library(infercnv)
+data <- readRDS("object.rds")
+seurat_obj <- UpdateSeuratObject(object = data)
+
+# Set binary "malignant"/"healthy" cell types for defining reference
+seurat_obj$binary_cell_type <- ifelse(grepl("B_cell", seurat_obj$singlr_labels), "malignant", "healthy")
+
+cell_annotation <- file.path("annotation.txt")
+gene_ordering_file <- file.path("geneshg20_order.txt")
+
+# Create infercnv object
+infercnv_obj = CreateInfercnvObject(raw_counts_matrix=LayerData(sobj, assay = "RNA", layer = "counts"),
                                     annotations_file=cell_annotation,
                                     delim="\t",
                                     gene_order_file=gene_ordering_file,
-                                    ref_group_names="healthy" #if not add NULL
+                                    ref_group_names=c("healthy")
 )
-# defaul parameter
+
+# infercnv CNV calling
 infercnv_obj = infercnv::run(infercnv_obj,
-                             cutoff=0.1,  # use 1 for smart-seq, 0.1 for 10x-genomics
-                             out_dir="output_dir",  # dir is auto-created for storing outputs
-                             cluster_by_groups=T,   # cluster
-                             denoise=T,
-                             HMM=T
-                             )
-# parameters used on EG samples that generated most common signals with WGS
-infercnv_obj = infercnv::run(infercnv_obj,
-                             cutoff=0.1, 
-                             out_dir="output_dir", 
-                             cluster_by_groups=T,   
-                             denoise=T,
+                             cutoff=0.1,  # Gene filtering threshold, 0.1 recommended by developers for 10x data, 1 for less sparse data
+                             num_threads = 1,
+                             analysis_mode='subclusters',  # Default runs with "samples" operates at the level of whole samples, with "subcluste" CNV prediction is performed at the level of the groups of tumor cells rather than whole sample
+                             out_dir="ALL", 
+                             cluster_by_groups=T,  # Whether to cluster tumor cells by their annotations or not
+                             scale_data=T, 
+                             denoise=T, 
+                             noise_filter=0.12,  # Whitening effect; values +- from the reference cell mean will be set to zero 
                              HMM=T,
-                             HMM_type = 'i6',
-                             sd_amplifier = 1.5,
-                             noise_filter = 0.1,
-                             window_depth = 251,
-                             leiden_resolution = 0.01
-                             )
-
-## generate bed files from segments output
-file <- file.path("HMM_CNV_predictions.HMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.pred_cnv_regions.dat")
-seg_data <- read.table(file, header=TRUE, sep="\t")
-convert_to_bed <- function(seg_dat) {
-  bed_data <- data.frame(
-    chrom = seg_data$chr,
-    start = seg_data$start - 1,
-    end = seg_data$end,
-    name = seg_data$cell_group_name,
-    score = seg_data$state
-  )
-  return(bed_data)
-}
-bed_data <- convert_to_bed(seg_data)
-bed_file <- file.path("x_gene.bed")
-write.table(bed_data, file = bed_file, quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
-
-# sort
-%%bash
-module load bedtools/2.30.0
-bedtools sort -i x_gene.bed > x_gene_sort.bed
-
-# filter out the ENCODE blacklist hg38.v2 (overlapping by >= 50%)
-%%bash
-module load bedtools/2.30.0
-a_dir="path/"
-b_file="blacklist/hg38-blacklist.v2.bed"
-for a_file in "$a_dir"/*.bed; do
-    output_file="${a_file%.bed}_blck.bed"
-    bedtools intersect -a "$a_file" -b "$b_file" -f 0.50 -v > "$output_file" 
-    echo "Processed $a_file and saved as $output_file"
-done
-
-# filter out the ENCODE blacklist (all overlaps)
-%%bash
-module load bedtools/2.30.0
-input_peak_bed_file="x_gene_sort.bed"
-blacklist_file="blacklist/hg38-blacklist.v2.bed"
-chrom_sizes_file="chromsizes.bed"
-output_peak_bed_file="x_gene_blck.bed"
-bedtools subtract \
-        -A \
-        -wa \
-        -g "${chrom_sizes_file}" \
-        -a "${input_peak_bed_file}" \
-        -b "${blacklist_file}" \
-      | bedtools sort \
-            -g "${chrom_sizes_file}" \
-            -i stdin \
-      > "${output_peak_bed_file}"
-
-
-#change CN report so that it matches the SCEVAN and WGS
-%%bash
-awk 'BEGIN {OFS="\t"} { if ($5 == 1) $5 = 0; else if ($5 == 2) $5 = 1; else if ($5 == 3) $5 = 2; else if ($5 == 4) $5 = 3; else if ($5 == 5) $5 = 4; print }' input.bed > modified.bed
+                             HMM_type = 'i6'  # Reports six CNV status; one copy loss, two copies loss, neutral, one copy gain, two copies gain, three copies gain, "i3" for simple loss, neutral, gain CNV status report
+)
