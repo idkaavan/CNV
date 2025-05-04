@@ -3,27 +3,24 @@
 library(SCEVAN)
 library(Seurat)
 
-cell_barcodes <- read.table("/path/to/ref/cells/SCEVAN.txt" , header = FALSE, sep = "\n", stringsAsFactors = FALSE)
-norm_cells <- cell_barcodes$V1
+# A list of normal cell indices
+normal_cells <- read.table("normal.txt" , header = FALSE, sep = "\n", stringsAsFactors = FALSE) 
+normal_barcodes <- normal_cells$V1
 
-data <- readRDS("file.rds")
-sobj <- UpdateSeuratObject(object = data)
-DefaultAssay(sobj) <- "RNA" 
-count_mtx <- as.matrix(sobj@assays$RNA@data)
+# Seurat object cotaining the gene expression counts matrix
+data <- readRDS("object.rds") 
+seurat_obj <- UpdateSeuratObject(object = data)
+# Extract the raw counts matrix
+count_mtx <- as.matrix(seurat_obj@assays$RNA$counts)
 
-# default run
-results <- pipelineCNA(count_mtx) 
-
-# adjusted parameters
-results <- pipelineCNA(
-    count_mtx = counts_matrix,      # Raw count matrix
-    norm_cell = norm_cells,         # Indices of normal cells
-    SUBCLONES = TRUE,               # Analyze subclones (optional)
-    beta_vega = 0.5,                # Beta parameter (optional)
-    ClonalCN = TRUE,                # Get clonal CN profile (optional)
-    plotTree = FALSE,               # Plot phylogenetic tree (optional)
-    organism = "human"              # Specify organism (optional)
+# in-house version SCEVAN run
+SCEVAN::pipelineCNA_Partial(
+                           count_mtx, 
+                           norm_cell = normal_barcodes, 
+                           beta_vega = 0.5,  # beta parameter for segmentation, higher beta for more coarse-grained segmentation
+                           sample="ALL", 
+                           steps_to_run = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), 
+                           saveInputValues = TRUE,  # Save the inermediate files for possible further analyses
+                           saveClusteringInfo = TRUE,  # Only available in the in-house version to save the per cell assignments info
+                           par_cores = 1
 )
-
-# in-house version
-SCEVAN::pipelineCNA_Partial(count_mtx, norm_cell = norm_cells, sample="EXAMPLE", steps_to_run = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), saveInputValues = TRUE,  par_cores = 1)
